@@ -136,7 +136,7 @@ case object AndroidCheck extends PhaseObj[Unit, AndroidCheckConfig, Unit] {
 
   def defaultConfig: AndroidCheckConfig = AndroidCheckConfig()
   val options: List[PhaseOption[AndroidCheckConfig]] = List(
-    ("debug", BoolOption(c => c.debug = true),
+    ("debug", BoolOption(c => c.debug = false),
       "messages during compilation are muted."),
     ("out", StrOption((c, s) => c.outFile = Some(s)),
       "the results of type checking will be written to the outfile.")

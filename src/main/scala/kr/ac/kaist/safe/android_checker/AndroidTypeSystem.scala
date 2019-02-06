@@ -28,7 +28,7 @@ class AndroidTypeSystem(
   ////////////////////////////////////////////////////////////////
 
   private var warnings: List[AndroidTypeWarning] = List()
-  private var errors: List[AndroidTypeError] = List()
+  private var errors: Set[AndroidTypeError] = Set()
   private var checked: List[String] = List()
   private var unsafe = false
   private val builtins = Set("RegExp", "Date", "console", "JSON", "daum")
@@ -49,9 +49,10 @@ class AndroidTypeSystem(
     if (!env.contains(obj)) None
     else Some(env(obj))
 
-  def updateSto(obj: String, prop: String, value: AndroidType): Unit =
+  def updateSto(obj: String, prop: String, value: AndroidType): Unit = {
     if (!store.contains(obj)) store += (obj -> newEnv)
-    else store += (obj -> (store(obj) + (prop -> value)))
+    store += (obj -> (store(obj) + (prop -> value)))
+  }
 
   def lookupSto(obj: String): Option[Env] =
     if (dirty.contains(obj)) None
@@ -69,6 +70,9 @@ class AndroidTypeSystem(
 
   def removeSto(obj: String, prop: String): Unit =
     if (store.contains(obj)) store += (obj -> (store(obj) - prop))
+
+  def copySto(from: String, to: String): Unit =
+    if (store.contains(from)) store += (to -> store(from))
 
   def markDirty(obj: String): Unit = dirty ::= obj
 
@@ -108,17 +112,16 @@ class AndroidTypeSystem(
       errors.foreach(err => println(s"    $err"))
       println("/*****************/\n")
     }
-    /*
-    if (!warnings.isEmpty) {
-      println("/**** Warnings ****/")
-      warnings.foreach(warn => println(s"    $warn"))
-      println("/*****************/")
-    }
-*/
+    //if (!warnings.isEmpty) {
+    //  println("/**** Warnings ****/")
+    //  warnings.foreach(warn => println(s"    $warn"))
+    //  println("/*****************/")
+    //}
   }
 
   def updateBridge(obj: String): Unit =
     jvClasses(obj).listJvMethods.foreach(m => updateSto(obj, m, makeBrgFunction(m)))
+
   def checkJvBoundary(androidType: AndroidType, jvType: JvType): Boolean = true
   def checkJsBoundary(jv: JvType): AndroidType = jv match {
     case JvTop => Top
@@ -134,7 +137,6 @@ class AndroidTypeSystem(
   def checkCall(fun: IRFunctional, thisType: AndroidType, argsType: AndroidType): AndroidType = fun match {
     case IRFunctional(ast, fromSource, name, params, args, fds, vds, body) =>
       if (checked.contains(name.uniqueName)) Top
-      else if (params.length < 2 && !body.isEmpty) Top // Why?
       else {
         checked ::= name.uniqueName
         // This binding
@@ -142,9 +144,9 @@ class AndroidTypeSystem(
         val previous = env.get(thisName)
         env += (thisName -> thisType)
         // Argument binding
-        env += (params.tail.head.uniqueName -> argsType)
+        if (params.length > 1) env += (params.tail.head.uniqueName -> argsType)
         args.map(walk); fds.map(walk); vds.map(walk)
-        val t = body.map(walk).last
+        val t = if (body.isEmpty) makeJsDummyObject else body.map(walk).last
         // Withdraw this binding
         previous match {
           case Some(v) => env += (thisName -> v)
@@ -266,12 +268,18 @@ class AndroidTypeSystem(
     case IRExprStmt(ast, lhs, right, isRef) =>
       val t1 = walk(right)
       t1 match {
-        case JsObject(name, _, _) if name == "window" =>
+        case JsObject(name, _, _) if name == "window" => t1
+        case JsObject(name, _, _) if name == "this" =>
+          checkUnsafeUpdate(lookupEnv(lhs.uniqueName), t1, ast.span)
+          val t = makeJsDummyObject
+          copySto(name, t.name)
+          env += (lhs.uniqueName -> t)
+          t
         case _ =>
           checkUnsafeUpdate(lookupEnv(lhs.uniqueName), t1, ast.span)
           env += (lhs.uniqueName -> t1)
+          t1
       }
-      t1
 
     case IRDelete(ast, lhs, id) =>
       walk(id)
@@ -381,7 +389,7 @@ class AndroidTypeSystem(
               }
               jvClasses(oname).lookupJvMethod(mth.brg.get, as.size) match {
                 case Some(jvmth) =>
-                  jvmth.params.foldLeft(0)((index, jv) => {
+                  jvmth.params.foldLeft(1)((index, jv) => {
                     checkJvBoundary(as(index.toString), jv)
                     index + 1
                   })
@@ -391,18 +399,18 @@ class AndroidTypeSystem(
                   rt
                 case None =>
                   // a bridge method but it does not exist in Java
-                  errors ::= new AndroidTypeError(s"No bridge method $fname", ast.span)
+                  errors += new AndroidTypeError(s"No bridge method $fname", ast.span)
                   makeJsDummyObject
               }
             } else makeJsDummyObject // Built-in functions
           case BrgObject(_) => makeJsDummyObject
           case _ =>
             // a bridge object but it does not have the property
-            errors ::= new AndroidTypeError(s"Unknown method $fname", ast.span)
+            errors += new AndroidTypeError(s"Unknown method $fname", ast.span)
             makeJsDummyObject
         }
         case Top =>
-          errors ::= new AndroidTypeError(s"Not a function $fname", ast.span)
+          errors += new AndroidTypeError(s"Not a function $fname", ast.span)
           makeJsDummyObject
       }
 

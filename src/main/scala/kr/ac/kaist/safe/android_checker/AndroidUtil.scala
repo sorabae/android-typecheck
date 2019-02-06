@@ -126,7 +126,11 @@ object AndroidUtil {
     dummy
   }
 
-  class AndroidTypeError(msg: String, span: Span) {
+  class AndroidTypeError(val msg: String, val span: Span) {
+    override def equals(that: Any): Boolean = that match {
+      case error: AndroidTypeError => msg == error.msg && span == error.span
+      case _ => false
+    }
     override def toString: String = s"$msg @ $span"
   }
 
