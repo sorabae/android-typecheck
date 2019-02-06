@@ -1,4 +1,4 @@
-Type System for Hybrid Android Apps; Detecting Interoperation Bugs
+Type System for Detecting Interoperation Bugs in Hybrid Android Apps
 ===========
 
 Introduction
@@ -23,7 +23,7 @@ Install: ::
 
     sbt compile
 
-Extract JavaScript code and its bridges from Android apps via the front-end of `HybriDroid`_: ::
+Extract JavaScript code and its bridges from hybrid Android apps via the front-end of `HybriDroid`_: ::
     
     java -jar lib/hybridroid_types.jar <apk-file> wala.properties <bridge-output-file>
 
